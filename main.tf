@@ -8,8 +8,19 @@ data "aws_caller_identity" "current" {}
 data "aws_partition" "current" {}
 data "aws_region" "current" {}
 
+data "aws_subnet" "selected" {
+  for_each = length(var.subnet_ids) > 0 ? toset(var.subnet_ids) : []
+  id       = each.value
+}
+
 # ---- Locals operacionais (sem validações) ----
 locals {
+
+  # AZs das subnets informadas
+  subnets_azs  = [for s in data.aws_subnet.selected : s.availability_zone]
+  distinct_azs = distinct(local.subnets_azs)
+  has_two_azs  = length(local.distinct_azs) >= 2
+
   kms_key_id               = var.create_kms_key ? aws_kms_key.eks[0].arn : var.kms_key_id
   control_plane_subnet_ids = length(var.control_plane_subnet_ids) > 0 ? var.control_plane_subnet_ids : var.subnet_ids
 
@@ -27,6 +38,23 @@ locals {
       v.disk_size <= 16384
     )
   } : var.node_groups
+
+  # Lista de node groups inválidos (para mensagem de erro)
+  invalid_node_groups = [
+    for k, v in var.node_groups : k
+    if var.validate_node_group_scaling && (
+      v.min_size < 0 ||
+      v.max_size < v.min_size ||
+      v.desired_size < v.min_size ||
+      v.desired_size > v.max_size ||
+      v.disk_size < 1 ||
+      v.disk_size > 16384
+    )
+  ]
+
+  # Regras de endpoint público
+  public_endpoint_enabled  = var.cluster_endpoint_public_access
+  public_endpoint_all_open = contains(var.cluster_endpoint_public_access_cidrs, "0.0.0.0/0")
 }
 
 ########################################
@@ -233,8 +261,8 @@ resource "aws_security_group_rule" "node_additional" {
 ########################################
 
 resource "aws_iam_role" "cluster" {
-  name        = var.cluster_iam_role_name != null ? var.cluster_iam_role_name : "${var.cluster_name}-cluster-role"
-  name_prefix = var.cluster_iam_role_name_prefix
+  name        = var.cluster_iam_role_name != null ? var.cluster_iam_role_name : (var.cluster_iam_role_name_prefix == null ? "${var.cluster_name}-cluster-role" : null)
+  name_prefix = var.cluster_iam_role_name == null ? var.cluster_iam_role_name_prefix : null
   path        = var.iam_role_path
 
   assume_role_policy = jsonencode({
@@ -309,6 +337,30 @@ resource "aws_eks_cluster" "this" {
 
   lifecycle {
     ignore_changes = [version]
+
+    # Pelo menos 2 subnets
+    precondition {
+      condition     = !var.validate_subnet_count || length(var.subnet_ids) >= 2
+      error_message = "Validação falhou: forneça ao menos 2 subnets para o EKS (alta disponibilidade)."
+    }
+
+    # Subnets distribuídas em >= 2 AZs
+    precondition {
+      condition     = !var.validate_subnet_count || local.has_two_azs
+      error_message = "Validação falhou: as subnets devem abranger pelo menos 2 Zonas de Disponibilidade distintas."
+    }
+
+    # Escalonamento/disco dos node groups
+    precondition {
+      condition     = length(local.invalid_node_groups) == 0
+      error_message = "Validação dos node groups falhou: verifique min/max/desired e disk_size. Inválidos: ${join(", ", local.invalid_node_groups)}"
+    }
+
+    # Endpoint público aberto sem aceite explícito
+    precondition {
+      condition     = !(local.public_endpoint_enabled && local.public_endpoint_all_open && !var.allow_public_endpoint_anywhere)
+      error_message = "Endpoint público do EKS está aberto para 0.0.0.0/0. Restrinja 'cluster_endpoint_public_access_cidrs' ou defina 'allow_public_endpoint_anywhere=true' conscientemente."
+    }
   }
 }
 
@@ -317,8 +369,9 @@ resource "aws_eks_cluster" "this" {
 ########################################
 
 data "tls_certificate" "eks" {
-  count = var.enable_irsa ? 1 : 0
-  url   = try(aws_eks_cluster.this.identity[0].oidc[0].issuer, "")
+  count      = var.enable_irsa ? 1 : 0
+  url        = try(aws_eks_cluster.this.identity[0].oidc[0].issuer, "")
+  depends_on = [aws_eks_cluster.this]
 }
 
 
@@ -344,8 +397,8 @@ resource "aws_iam_openid_connect_provider" "oidc" {
 ########################################
 
 resource "aws_iam_role" "node" {
-  name        = var.node_iam_role_name != null ? var.node_iam_role_name : "${var.cluster_name}-node-role"
-  name_prefix = var.node_iam_role_name_prefix
+  name        = var.node_iam_role_name != null ? var.node_iam_role_name : (var.node_iam_role_name_prefix == null ? "${var.cluster_name}-node-role" : null)
+  name_prefix = var.node_iam_role_name == null ? var.node_iam_role_name_prefix : null
   path        = var.iam_role_path
 
   assume_role_policy = jsonencode({
@@ -648,15 +701,16 @@ resource "kubernetes_config_map" "aws_auth" {
   }
 
   data = {
-    mapRoles    = yamldecode(local.aws_auth_configmap_yaml).data.mapRoles
-    mapUsers    = yamldecode(local.aws_auth_configmap_yaml).data.mapUsers
-    mapAccounts = yamldecode(local.aws_auth_configmap_yaml).data.mapAccounts
+    mapRoles    = try(yamldecode(local.aws_auth_configmap_yaml).data.mapRoles, "")
+    mapUsers    = try(yamldecode(local.aws_auth_configmap_yaml).data.mapUsers, "")
+    mapAccounts = try(yamldecode(local.aws_auth_configmap_yaml).data.mapAccounts, "")
   }
 
   depends_on = [aws_eks_cluster.this, aws_eks_node_group.this]
 
   lifecycle { ignore_changes = [metadata[0].annotations] }
 }
+
 
 ########################################
 # Access Entries (opcional, auth_mode = "access-entries")

@@ -520,3 +520,10 @@ variable "access_entries" {
   }))
   default = {}
 }
+
+# Permite abrir o endpoint público (0.0.0.0/0) conscientemente, útil só em LAB/POC
+variable "allow_public_endpoint_anywhere" {
+  description = "Permite explicitamente 0.0.0.0/0 no endpoint público do EKS (uso não recomendado em produção)."
+  type        = bool
+  default     = false
+}
