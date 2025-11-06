@@ -1,0 +1,97 @@
+name: Tag Creation on Main Push
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  tag-creation:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: "1.11.3"
+
+      - name: Terraform Format
+        run: terraform fmt -check
+        working-directory: ${{ github.workspace }}
+
+      - name: Terraform Init and Validate
+        run: |
+          # Clean up any existing Terraform files
+          rm -rf .terraform*
+
+          # Remove backend configurations from module files
+          find . -type f -name "*.tf" -exec sed -i '/backend\s*"s3"/d' {} \;
+
+          # Create root backend configuration
+          cat > backend.tf <<EOF
+          terraform {
+            backend "s3" {}
+          }
+          EOF                    
+
+          # Initialize Terraform
+          terraform init -backend=false
+
+          # Validate Terraform configuration
+          terraform validate
+
+          # Clean up any existing Terraform files
+          rm -rf .terraform*
+        working-directory: ${{ github.workspace }}
+
+      - name: Set up Git configuration
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+
+      - name: Fetch all tags
+        run: git fetch --tags
+
+      - name: Check if there are existing tags
+        id: check_tags
+        run: |
+          tag_count=$(git tag | wc -l)
+          if [ "$tag_count" -eq 0 ]; then
+            echo "first_tag=true" >> $GITHUB_OUTPUT
+          else
+            echo "first_tag=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Get the latest tag
+        id: get_latest_tag
+        if: steps.check_tags.outputs.first_tag == 'false'
+        run: |
+          latest_tag=$(git describe --tags `git rev-list --tags --max-count=1`)
+          echo "latest_tag=$latest_tag" >> $GITHUB_OUTPUT
+
+      - name: Increment version and create a new tag
+        run: |
+          if [ "${{ steps.check_tags.outputs.first_tag }}" == "true" ]; then
+            new_tag="v1.0.0"
+          else
+            version="${{ steps.get_latest_tag.outputs.latest_tag }}"
+            version="${version#v}"
+            IFS='.' read -r major minor patch <<< "$version"
+            new_tag="v${major}.${minor}.$((patch + 1))"
+          fi
+
+          echo "Creating new tag: $new_tag"
+
+          if git ls-remote --tags origin | grep -q "refs/tags/$new_tag"; then
+            echo "Tag $new_tag already exists. Skipping."
+            exit 0
+          fi
+
+          git tag -a "$new_tag" -m "Release $new_tag"
+          git push origin "$new_tag"
