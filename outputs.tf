@@ -100,8 +100,9 @@ output "ebs_csi_driver_iam_role_arn" {
   value       = contains(keys(var.cluster_addons), "ebs-csi-driver") && var.enable_irsa ? try(aws_iam_role.ebs_csi_driver[0].arn, null) : null
 }
 
+# outputs.tf – dentro do output "node_groups"
 output "node_groups" {
-  description = "Mapa com atributos dos Node Groups criados (EKS Managed)."
+  description = "Map de atributos dos EKS node groups"
   value = {
     for k, v in aws_eks_node_group.this : k => {
       id                              = v.id
@@ -118,11 +119,12 @@ output "node_groups" {
       scaling_config                  = v.scaling_config
       subnet_ids                      = v.subnet_ids
       tags                            = v.tags
-      taints                          = v.taints
+      taints                          = try(v.taint, [])
       labels                          = v.labels
     }
   }
 }
+
 
 output "cluster_addons" {
   description = "Mapa com atributos de todos os add-ons criados"

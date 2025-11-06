@@ -321,18 +321,22 @@ data "tls_certificate" "eks" {
   url   = try(aws_eks_cluster.this.identity[0].oidc[0].issuer, "")
 }
 
-locals {
-  oidc_root_thumbprint = length(data.tls_certificate.eks) > 0 && length(data.tls_certificate.eks[0].certificates) > 0 ? (
-    data.tls_certificate.eks[0].certificates[length(data.tls_certificate.eks[0].certificates) - 1].sha1_fingerprint
-  ) : null
-}
 
 resource "aws_iam_openid_connect_provider" "oidc" {
-  count           = var.enable_irsa && local.oidc_root_thumbprint != null ? 1 : 0
-  client_id_list  = ["sts.amazonaws.com"]
-  thumbprint_list = [local.oidc_root_thumbprint]
-  url             = try(aws_eks_cluster.this.identity[0].oidc[0].issuer, "")
-  tags            = merge(var.tags, { Name = "${var.cluster_name}-irsa" })
+  count = var.enable_irsa ? 1 : 0
+
+  client_id_list = ["sts.amazonaws.com"]
+  # usa o último certificado (raiz) do emissor
+  thumbprint_list = [
+    data.tls_certificate.eks[0].certificates[
+      length(data.tls_certificate.eks[0].certificates) - 1
+    ].sha1_fingerprint
+  ]
+  url = aws_eks_cluster.this.identity[0].oidc[0].issuer
+
+  tags = merge(var.tags, { Name = "${var.cluster_name}-irsa" })
+
+  depends_on = [aws_eks_cluster.this]
 }
 
 ########################################
@@ -566,12 +570,15 @@ resource "aws_launch_template" "node_group" {
 # Enforce CMK nos nodes (opcional)
 ########################################
 
-locals { cmk_missing = var.require_cmk_for_nodes && local.kms_key_id == null }
+locals {
+  cmk_missing = var.require_cmk_for_nodes && (var.create_kms_key == false) && (var.kms_key_id == null)
+}
 
 resource "null_resource" "cmk_enforcement" {
   count = local.cmk_missing ? 1 : 0
+
   provisioner "local-exec" {
-    command = "echo 'ERRO: require_cmk_for_nodes=true mas nenhum KMS CMK foi definido.' && exit 1"
+    command = "echo 'ERRO: require_cmk_for_nodes=true mas nenhum KMS CMK foi definido (create_kms_key=false e kms_key_id=null).' && exit 1"
   }
 }
 
