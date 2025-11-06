@@ -435,7 +435,7 @@ resource "aws_iam_role_policy_attachment" "node_container_registry_policy" {
 ########################################
 
 resource "aws_iam_role" "ebs_csi_driver" {
-  count = contains(keys(var.cluster_addons), "ebs-csi-driver") && var.enable_irsa ? 1 : 0
+  count = contains(keys(var.cluster_addons), "aws-ebs-csi-driver") && var.enable_irsa ? 1 : 0
   name  = "${var.cluster_name}-ebs-csi-driver-role"
 
   assume_role_policy = jsonencode({
@@ -475,7 +475,7 @@ resource "aws_eks_addon" "this" {
   resolve_conflicts        = try(each.value.resolve_conflicts, var.addon_resolve_conflicts_default)
   preserve                 = try(each.value.preserve, false)
   configuration_values     = try(each.value.configuration_values, null)
-  service_account_role_arn = each.key == "ebs-csi-driver" && var.enable_irsa ? try(aws_iam_role.ebs_csi_driver[0].arn, null) : null
+  service_account_role_arn = each.key == "aws-ebs-csi-driver" && var.enable_irsa ? try(aws_iam_role.ebs_csi_driver[0].arn, null) : null
 
   timeouts {
     create = try(var.addon_timeouts.create, "20m")
