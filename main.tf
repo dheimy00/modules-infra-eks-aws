@@ -1,6 +1,5 @@
 ###############################
-# EKS MODULE – MAIN AJUSTADO
-# Recursos limpos, sem validações (agora em validators.tf)
+# EKS MODULE
 ###############################
 
 # ---- Datasources essenciais ----
