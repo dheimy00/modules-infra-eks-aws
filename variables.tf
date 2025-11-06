@@ -501,3 +501,22 @@ variable "cluster_identity_providers" {
   }))
   default = {}
 }
+
+variable "access_entries" {
+  description = "Mapeia Access Entries para o modo auth_mode=\"access-entries\"."
+  type = map(object({
+    principal_arn     = string
+    type              = string
+    kubernetes_groups = optional(list(string))
+    user_name         = optional(string)
+    policy_associations = optional(map(object({
+      access_scope = object({
+        type       = string
+        namespaces = optional(list(string))
+      })
+      policy_arn = string
+    })))
+    tags = optional(map(string))
+  }))
+  default = {}
+}
