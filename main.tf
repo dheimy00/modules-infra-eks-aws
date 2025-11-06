@@ -649,14 +649,15 @@ resource "kubernetes_config_map" "aws_auth" {
 
   data = {
     mapRoles    = yamldecode(local.aws_auth_configmap_yaml).data.mapRoles
-    mapUsers    = yamldecode(local.aws_auth_configmap_yaml).data.mapUsers
-    mapAccounts = yamldecode(local.aws_auth_configmap_yaml).data.mapAccounts
+    mapUsers    = try(yamldecode(local.aws_auth_configmap_yaml).data.mapUsers, "")
+    mapAccounts = try(yamldecode(local.aws_auth_configmap_yaml).data.mapAccounts, "")
   }
 
   depends_on = [aws_eks_cluster.this, aws_eks_node_group.this]
 
   lifecycle { ignore_changes = [metadata[0].annotations] }
 }
+
 
 ########################################
 # Access Entries (opcional, auth_mode = "access-entries")
