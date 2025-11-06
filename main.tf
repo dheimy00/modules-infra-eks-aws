@@ -570,6 +570,31 @@ resource "aws_eks_node_group" "this" {
 # Launch Templates (Nodes)
 ########################################
 
+locals {
+  # Para cada node group, seleciona os block_device_mappings informados,
+  # ou aplica um fallback com o root volume usando o disk_size do NG (ou 20).
+  lt_block_device_mappings = {
+    for k, v in var.node_groups :
+    k => (
+      length(try(v.block_device_mappings, [])) > 0
+      ? try(v.block_device_mappings, [])
+      : [
+        {
+          device_name           = "/dev/xvda"
+          volume_type           = "gp3"
+          volume_size           = try(v.disk_size, 20)
+          encrypted             = true
+          delete_on_termination = true
+          # kms_key_id          = local.kms_key_id    # descomente se quiser forçar CMK aqui
+          # iops                = 3000                # opcional (io1/io2)
+          # throughput          = 125                 # opcional (gp3)
+        }
+      ]
+    )
+  }
+}
+
+
 resource "aws_launch_template" "node_group" {
   for_each = { for k, v in var.node_groups : k => v if v.create_launch_template }
 
@@ -578,23 +603,8 @@ resource "aws_launch_template" "node_group" {
 
   vpc_security_group_ids = var.create_node_security_group ? [aws_security_group.node[0].id] : []
 
-  
   dynamic "block_device_mappings" {
-    for_each = length(try(each.value.block_device_mappings, [])) > 0
-      ? try(each.value.block_device_mappings, [])
-      : [
-          {
-            device_name           = "/dev/xvda"
-            volume_type           = "gp3"
-            volume_size           = try(each.value.disk_size, 20)
-            encrypted             = true
-            delete_on_termination = true
-            # kms_key_id          = local.kms_key_id  # opcional
-            # iops                = 3000              # opcional (apenas p/ io1/io2)
-            # throughput          = 125               # opcional (gp3)
-          }
-        ]
-
+    for_each = lookup(local.lt_block_device_mappings, each.key, [])
     content {
       device_name = block_device_mappings.value.device_name
       ebs {
@@ -602,13 +612,12 @@ resource "aws_launch_template" "node_group" {
         volume_size           = lookup(block_device_mappings.value, "volume_size", try(each.value.disk_size, 20))
         encrypted             = lookup(block_device_mappings.value, "encrypted", true)
         delete_on_termination = lookup(block_device_mappings.value, "delete_on_termination", true)
-        kms_key_id            = lookup(block_device_mappings.value, "kms_key_id", local.kms_key_id)
+        kms_key_id            = lookup(block_device_mappings.value, "kms_key_id", null)
         iops                  = lookup(block_device_mappings.value, "iops", null)
         throughput            = lookup(block_device_mappings.value, "throughput", null)
       }
     }
   }
-  
 
   dynamic "metadata_options" {
     for_each = each.value.metadata_options != null ? [each.value.metadata_options] : []
