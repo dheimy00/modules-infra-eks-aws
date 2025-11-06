@@ -486,3 +486,18 @@ variable "cluster_tags" {
   type        = map(string)
   default     = {}
 }
+
+
+variable "cluster_identity_providers" {
+  description = "Mapeia provedores de identidade OIDC do EKS; a chave vira identity_provider_config_name"
+  type = map(object({
+    client_id       = string
+    issuer_url      = optional(string) # se ausente, usa o issuer do cluster
+    groups_claim    = optional(string)
+    groups_prefix   = optional(string)
+    required_claims = optional(map(string)) # ex.: { key = "value" }
+    username_claim  = optional(string)
+    username_prefix = optional(string)
+  }))
+  default = {}
+}
