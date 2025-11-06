@@ -1,23 +1,37 @@
 ###############################
-# EKS MODULE 
+# EKS MODULE – MAIN AJUSTADO
+# Recursos limpos, sem validações (agora em validators.tf)
 ###############################
 
-########################################
-# DATASOURCES
-########################################
-
-data "aws_availability_zones" "available" {
-  state = "available"
-}
-
+# ---- Datasources essenciais ----
+data "aws_availability_zones" "available" { state = "available" }
 data "aws_caller_identity" "current" {}
-
 data "aws_partition" "current" {}
-
 data "aws_region" "current" {}
 
+# ---- Locals operacionais (sem validações) ----
+locals {
+  kms_key_id               = var.create_kms_key ? aws_kms_key.eks[0].arn : var.kms_key_id
+  control_plane_subnet_ids = length(var.control_plane_subnet_ids) > 0 ? var.control_plane_subnet_ids : var.subnet_ids
+
+  # Compatibilidade: validators.tf já faz o gate de HA; aqui mantemos a lista de subnets usada pelo cluster
+  subnet_ids_validated = var.validate_subnet_count && length(var.subnet_ids) < 2 ? tolist([]) : var.subnet_ids
+
+  # Filtro de node_groups (validação dura está em validators.tf)
+  node_groups_validated = var.validate_node_group_scaling ? {
+    for k, v in var.node_groups : k => v if(
+      v.min_size >= 0 &&
+      v.max_size >= v.min_size &&
+      v.desired_size >= v.min_size &&
+      v.desired_size <= v.max_size &&
+      v.disk_size >= 1 &&
+      v.disk_size <= 16384
+    )
+  } : var.node_groups
+}
+
 ########################################
-# KMS: CHAVE E POLÍTICA APERTADA
+# KMS (CMK opcional para criptografia do cluster)
 ########################################
 
 resource "aws_kms_key" "eks" {
@@ -31,29 +45,18 @@ resource "aws_kms_key" "eks" {
     Version = "2012-10-17"
     Statement = concat([
       {
-        Sid    = "EnableIAMUserPermissions"
-        Effect = "Allow"
-        Principal = {
-          AWS = "arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:root"
-        }
-        Action   = "kms:*"
-        Resource = "*"
+        Sid       = "EnableIAMUserPermissions"
+        Effect    = "Allow"
+        Principal = { AWS = "arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:root" }
+        Action    = "kms:*"
+        Resource  = "*"
       },
-      # Permitir uso pelo EKS, restrito ao cluster
       {
-        Sid    = "AllowEKSToUseKeyForCluster"
-        Effect = "Allow"
-        Principal = {
-          Service = "eks.amazonaws.com"
-        }
-        Action = [
-          "kms:Encrypt",
-          "kms:Decrypt",
-          "kms:ReEncrypt*",
-          "kms:GenerateDataKey*",
-          "kms:DescribeKey"
-        ]
-        Resource = "*"
+        Sid       = "AllowEKSToUseKeyForCluster"
+        Effect    = "Allow"
+        Principal = { Service = "eks.amazonaws.com" }
+        Action    = ["kms:Encrypt", "kms:Decrypt", "kms:ReEncrypt*", "kms:GenerateDataKey*", "kms:DescribeKey"]
+        Resource  = "*"
         Condition = {
           StringEquals = {
             "kms:CallerAccount"                          = data.aws_caller_identity.current.account_id,
@@ -61,21 +64,12 @@ resource "aws_kms_key" "eks" {
           }
         }
       },
-      # Permitir CloudWatch Logs (region-specific principal)
       {
-        Sid    = "AllowCWLToUseKey"
-        Effect = "Allow"
-        Principal = {
-          Service = "logs.${data.aws_region.current.name}.amazonaws.com"
-        }
-        Action = [
-          "kms:Encrypt",
-          "kms:Decrypt",
-          "kms:ReEncrypt*",
-          "kms:GenerateDataKey*",
-          "kms:DescribeKey"
-        ]
-        Resource = "*"
+        Sid       = "AllowCWLToUseKey"
+        Effect    = "Allow"
+        Principal = { Service = "logs.${data.aws_region.current.name}.amazonaws.com" }
+        Action    = ["kms:Encrypt", "kms:Decrypt", "kms:ReEncrypt*", "kms:GenerateDataKey*", "kms:DescribeKey"]
+        Resource  = "*"
         Condition = {
           ArnEquals = {
             "kms:EncryptionContext:aws:logs:arn" = "arn:${data.aws_partition.current.partition}:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:*"
@@ -94,26 +88,8 @@ resource "aws_kms_alias" "eks" {
   target_key_id = aws_kms_key.eks[0].key_id
 }
 
-locals {
-  kms_key_id               = var.create_kms_key ? aws_kms_key.eks[0].arn : var.kms_key_id
-  control_plane_subnet_ids = length(var.control_plane_subnet_ids) > 0 ? var.control_plane_subnet_ids : var.subnet_ids
-
-  subnet_ids_validated = var.validate_subnet_count && length(var.subnet_ids) < 2 ? tolist([]) : var.subnet_ids
-
-  node_groups_validated = var.validate_node_group_scaling ? {
-    for k, v in var.node_groups : k => v if(
-      v.min_size >= 0 &&
-      v.max_size >= v.min_size &&
-      v.desired_size >= v.min_size &&
-      v.desired_size <= v.max_size &&
-      v.disk_size >= 1 &&
-      v.disk_size <= 16384
-    )
-  } : var.node_groups
-}
-
 ########################################
-# LOG GROUP COM KMS OPCIONAL
+# CloudWatch Log Group (sem prevent_destroy variável)
 ########################################
 
 resource "aws_cloudwatch_log_group" "eks_cluster" {
@@ -125,11 +101,11 @@ resource "aws_cloudwatch_log_group" "eks_cluster" {
 
   tags = merge(var.tags, var.cluster_tags, { Name = "${var.cluster_name}-cluster-logs" })
 
-  # lifecycle { prevent_destroy = var.prevent_cluster_log_group_deletion }
+  # Para proteção dura, use literal: lifecycle { prevent_destroy = true }
 }
 
 ########################################
-# SECURITY GROUPS (CLUSTER / NODES)
+# Security Groups – Cluster e Nodes
 ########################################
 
 resource "aws_security_group" "cluster" {
@@ -163,7 +139,7 @@ resource "aws_security_group_rule" "cluster_egress_internet" {
   from_port         = 0
   protocol          = "-1"
   security_group_id = aws_security_group.cluster[0].id
-  cidr_blocks       = ["0.0.0.0/0"] # Considere restringir
+  cidr_blocks       = ["0.0.0.0/0"]
   to_port           = 0
   type              = "egress"
 }
@@ -234,7 +210,7 @@ resource "aws_security_group_rule" "node_egress_internet" {
   from_port         = 0
   protocol          = "-1"
   security_group_id = aws_security_group.node[0].id
-  cidr_blocks       = ["0.0.0.0/0"] # Considere restringir
+  cidr_blocks       = ["0.0.0.0/0"]
   to_port           = 0
   type              = "egress"
 }
@@ -254,7 +230,7 @@ resource "aws_security_group_rule" "node_additional" {
 }
 
 ########################################
-# IAM (CLUSTER)
+# IAM – Cluster
 ########################################
 
 resource "aws_iam_role" "cluster" {
@@ -287,7 +263,7 @@ resource "aws_iam_role_policy_attachment" "cluster_vpc_resource_controller" {
 }
 
 ########################################
-# CLUSTER EKS
+# EKS Cluster
 ########################################
 
 resource "aws_eks_cluster" "this" {
@@ -316,23 +292,6 @@ resource "aws_eks_cluster" "this" {
 
   kubernetes_network_config {
     service_ipv4_cidr = var.cluster_service_ipv4_cidr
-    # Opcional: ip_family = "ipv6"
-  }
-
-  dynamic "identity" {
-    for_each = var.cluster_identity_providers
-    content {
-      oidc {
-        identity_provider_config_name = identity.key
-        issuer_url                    = identity.value.issuer_url != null ? identity.value.issuer_url : (var.enable_irsa ? replace(aws_iam_openid_connect_provider.oidc[0].url, "https://", "") : null)
-        client_id                     = identity.value.client_id
-        groups_claim                  = identity.value.groups_claim
-        groups_prefix                 = identity.value.groups_prefix
-        required_claims               = identity.value.required_claims
-        username_claim                = identity.value.username_claim
-        username_prefix               = identity.value.username_prefix
-      }
-    }
   }
 
   timeouts {
@@ -349,11 +308,13 @@ resource "aws_eks_cluster" "this" {
 
   tags = merge(var.tags, var.cluster_tags, { Name = var.cluster_name })
 
-  lifecycle { ignore_changes = [version] }
+  lifecycle {
+    ignore_changes = [version]
+  }
 }
 
 ########################################
-# IRSA – OIDC PROVIDER (thumbprint raiz)
+# IRSA (OIDC Provider para IAM Roles for Service Accounts)
 ########################################
 
 data "tls_certificate" "eks" {
@@ -376,7 +337,7 @@ resource "aws_iam_openid_connect_provider" "oidc" {
 }
 
 ########################################
-# IAM (NODES)
+# IAM – Nodes
 ########################################
 
 resource "aws_iam_role" "node" {
@@ -414,7 +375,7 @@ resource "aws_iam_role_policy_attachment" "node_container_registry_policy" {
 }
 
 ########################################
-# EBS CSI (IRSA)
+# EBS CSI – IRSA (opcional)
 ########################################
 
 resource "aws_iam_role" "ebs_csi_driver" {
@@ -446,7 +407,7 @@ resource "aws_iam_role_policy_attachment" "ebs_csi_driver" {
 }
 
 ########################################
-# ADD-ONS DO CLUSTER
+# EKS Add-ons (depends_on estático)
 ########################################
 
 resource "aws_eks_addon" "this" {
@@ -469,7 +430,7 @@ resource "aws_eks_addon" "this" {
   depends_on = [
     aws_eks_cluster.this,
     aws_cloudwatch_log_group.eks_cluster,
-    aws_eks_node_group.this, # sempre depende; é estático e funciona mesmo se o mapa estiver vazio
+    aws_eks_node_group.this,
   ]
 
   tags = var.tags
@@ -478,7 +439,7 @@ resource "aws_eks_addon" "this" {
 }
 
 ########################################
-# NODE GROUPS GERENCIADOS
+# Node Groups (Managed)
 ########################################
 
 resource "aws_eks_node_group" "this" {
@@ -550,7 +511,7 @@ resource "aws_eks_node_group" "this" {
 }
 
 ########################################
-# LAUNCH TEMPLATES (NODES)
+# Launch Templates (Nodes)
 ########################################
 
 resource "aws_launch_template" "node_group" {
@@ -602,10 +563,11 @@ resource "aws_launch_template" "node_group" {
   tags = var.tags
 }
 
-# CMK obrigatório para nodes (opcional)
-locals {
-  cmk_missing = var.require_cmk_for_nodes && local.kms_key_id == null
-}
+########################################
+# Enforce CMK nos nodes (opcional)
+########################################
+
+locals { cmk_missing = var.require_cmk_for_nodes && local.kms_key_id == null }
 
 resource "null_resource" "cmk_enforcement" {
   count = local.cmk_missing ? 1 : 0
@@ -615,12 +577,10 @@ resource "null_resource" "cmk_enforcement" {
 }
 
 ########################################
-# PROVIDER KUBERNETES (ALIAS) + TOKEN
+# Provider Kubernetes (alias) + token
 ########################################
 
-data "aws_eks_cluster_auth" "this" {
-  name = aws_eks_cluster.this.name
-}
+data "aws_eks_cluster_auth" "this" { name = aws_eks_cluster.this.name }
 
 provider "kubernetes" {
   alias                  = "eks"
@@ -630,7 +590,7 @@ provider "kubernetes" {
 }
 
 ########################################
-# AWS AUTH (Opcional) – MUTUAMENTE EXCLUSIVO COM ACCESS ENTRIES
+# aws-auth (opcional, auth_mode = "aws-auth")
 ########################################
 
 locals {
@@ -693,7 +653,7 @@ resource "kubernetes_config_map" "aws_auth" {
 }
 
 ########################################
-# ACCESS ENTRIES (Opcional) – MUTUAMENTE EXCLUSIVO
+# Access Entries (opcional, auth_mode = "access-entries")
 ########################################
 
 resource "aws_eks_access_entry" "this" {
@@ -732,4 +692,32 @@ resource "aws_eks_access_policy_association" "this" {
   principal_arn = each.value.entry.principal_arn
 
   depends_on = [aws_eks_access_entry.this]
+}
+
+########################################
+# EKS Identity Provider (OIDC) – opcional
+########################################
+
+resource "aws_eks_identity_provider_config" "this" {
+  for_each     = var.cluster_identity_providers
+  cluster_name = aws_eks_cluster.this.name
+
+  oidc {
+    identity_provider_config_name = each.key
+    issuer_url                    = coalesce(try(each.value.issuer_url, null), try(aws_eks_cluster.this.identity[0].oidc[0].issuer, null))
+    client_id                     = each.value.client_id
+
+    username_claim  = try(each.value.username_claim, null)
+    username_prefix = try(each.value.username_prefix, null)
+    groups_claim    = try(each.value.groups_claim, null)
+    groups_prefix   = try(each.value.groups_prefix, null)
+    required_claims = try(each.value.required_claims, null)
+  }
+
+  tags = var.tags
+
+  depends_on = [
+    aws_eks_cluster.this,
+    aws_iam_openid_connect_provider.oidc,
+  ]
 }
