@@ -578,21 +578,32 @@ resource "aws_launch_template" "node_group" {
 
   vpc_security_group_ids = var.create_node_security_group ? [aws_security_group.node[0].id] : []
 
+# SUBSTITUA o for_each do block_device_mappings por:
   dynamic "block_device_mappings" {
-    for_each = each.value.block_device_mappings
+    for_each = length(try(each.value.block_device_mappings, [])) > 0
+      ? each.value.block_device_mappings
+      : [
+          {
+            device_name = "/dev/xvda"
+            volume_type = "gp3"
+            volume_size = try(each.value.disk_size, 20)
+            encrypted   = true
+          }
+        ]
     content {
       device_name = block_device_mappings.value.device_name
       ebs {
         volume_type           = lookup(block_device_mappings.value, "volume_type", "gp3")
-        volume_size           = lookup(block_device_mappings.value, "volume_size", each.value.disk_size)
-        iops                  = lookup(block_device_mappings.value, "iops", null)
-        throughput            = lookup(block_device_mappings.value, "throughput", null)
+        volume_size           = lookup(block_device_mappings.value, "volume_size", try(each.value.disk_size, 20))
         encrypted             = lookup(block_device_mappings.value, "encrypted", true)
         kms_key_id            = lookup(block_device_mappings.value, "kms_key_id", local.kms_key_id)
         delete_on_termination = lookup(block_device_mappings.value, "delete_on_termination", true)
+        iops                  = lookup(block_device_mappings.value, "iops", null)
+        throughput            = lookup(block_device_mappings.value, "throughput", null)
       }
     }
   }
+
 
   dynamic "metadata_options" {
     for_each = each.value.metadata_options != null ? [each.value.metadata_options] : []
