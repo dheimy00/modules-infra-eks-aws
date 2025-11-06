@@ -127,20 +127,22 @@ output "node_groups" {
 
 
 output "cluster_addons" {
-  description = "Mapa com atributos de todos os add-ons criados"
+  description = "Mapa com atributos dos EKS addons criados"
   value = {
     for k, v in aws_eks_addon.this : k => {
       id            = v.id
       arn           = v.arn
       addon_name    = v.addon_name
       addon_version = v.addon_version
-      status        = v.status
-      created_at    = v.created_at
-      modified_at   = v.modified_at
-      tags          = v.tags
+      # alguns providers têm `status`, outros não → usar try
+      status      = try(v.status, try(v.addon_status, null))
+      created_at  = try(v.created_at, null)
+      modified_at = try(v.modified_at, null)
+      tags        = try(v.tags, {})
     }
   }
 }
+
 
 output "cluster_kubernetes_network_config" {
   description = "Bloco de configuração de rede Kubernetes do cluster"
