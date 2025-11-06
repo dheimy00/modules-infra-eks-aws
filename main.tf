@@ -3,54 +3,6 @@
 ###############################
 
 ########################################
-# VARIÁVEIS ADICIONADAS / AJUSTADAS
-########################################
-
-variable "auth_mode" {
-  description = "Modo de autenticação/autorização no EKS: 'aws-auth' (ConfigMap) ou 'access-entries' (AWS Access Entries)."
-  type        = string
-  default     = "access-entries"
-  validation {
-    condition     = contains(["aws-auth", "access-entries"], var.auth_mode)
-    error_message = "auth_mode deve ser 'aws-auth' ou 'access-entries'."
-  }
-}
-
-variable "enable_ssh" {
-  description = "Habilita bloco remote_access nos node groups."
-  type        = bool
-  default     = false
-}
-
-variable "ssh_key_name" {
-  description = "Nome da chave EC2 para acesso SSH (usada apenas se enable_ssh=true)."
-  type        = string
-  default     = null
-}
-
-variable "require_cmk_for_nodes" {
-  description = "Se true, exige que volumes dos nodes usem CMK específico (falha se não definido)."
-  type        = bool
-  default     = false
-}
-
-variable "addons_wait_for_nodes" {
-  description = "Se true, forçará add-ons a dependerem dos node groups."
-  type        = bool
-  default     = true
-}
-
-# Exemplo de validação nativa (ajuste conforme seu variables.tf original)
-variable "subnet_ids" {
-  description = "Subnets para o cluster e node groups (mínimo 2, idealmente AZs distintas)."
-  type        = list(string)
-  validation {
-    condition     = length(var.subnet_ids) >= 2
-    error_message = "O EKS requer pelo menos 2 subnets em AZs diferentes."
-  }
-}
-
-########################################
 # DATASOURCES
 ########################################
 
@@ -173,7 +125,7 @@ resource "aws_cloudwatch_log_group" "eks_cluster" {
 
   tags = merge(var.tags, var.cluster_tags, { Name = "${var.cluster_name}-cluster-logs" })
 
-  lifecycle { prevent_destroy = var.prevent_cluster_log_group_deletion }
+  # lifecycle { prevent_destroy = var.prevent_cluster_log_group_deletion }
 }
 
 ########################################
@@ -514,10 +466,11 @@ resource "aws_eks_addon" "this" {
     delete = try(var.addon_timeouts.delete, "20m")
   }
 
-  depends_on = concat([
+  depends_on = [
     aws_eks_cluster.this,
-    aws_cloudwatch_log_group.eks_cluster
-  ], var.addons_wait_for_nodes ? [aws_eks_node_group.this] : [])
+    aws_cloudwatch_log_group.eks_cluster,
+    aws_eks_node_group.this, # sempre depende; é estático e funciona mesmo se o mapa estiver vazio
+  ]
 
   tags = var.tags
 
@@ -780,15 +733,3 @@ resource "aws_eks_access_policy_association" "this" {
 
   depends_on = [aws_eks_access_entry.this]
 }
-
-########################################
-# OUTPUTS ÚTEIS
-########################################
-
-output "cluster_name" { value = aws_eks_cluster.this.name }
-output "cluster_endpoint" { value = aws_eks_cluster.this.endpoint }
-output "cluster_oidc_issuer" { value = try(aws_eks_cluster.this.identity[0].oidc[0].issuer, null) }
-output "oidc_provider_arn" { value = try(aws_iam_openid_connect_provider.oidc[0].arn, null) }
-output "kms_key_arn" { value = local.kms_key_id }
-output "cluster_sg_id" { value = try(aws_security_group.cluster[0].id, null) }
-output "node_sg_id" { value = try(aws_security_group.node[0].id, null) }
