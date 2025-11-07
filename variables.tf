@@ -330,12 +330,14 @@ variable "node_security_group_additional_rules" {
 variable "node_groups" {
   description = "Mapa de definições de Node Groups gerenciados (EKS Managed Node Groups)."
   type = map(object({
-    ami_type       = optional(string, "AL2_x86_64")
-    capacity_type  = optional(string, "ON_DEMAND")
-    disk_size      = optional(number, 20)
-    disk_type      = optional(string, "gp3")
-    instance_types = optional(list(string), ["t3.medium"])
-    labels         = optional(map(string), {})
+    additional_policies          = optional(list(string))
+    iam_role_additional_policies = optional(list(string))
+    ami_type                     = optional(string, "AL2_x86_64")
+    capacity_type                = optional(string, "ON_DEMAND")
+    disk_size                    = optional(number, 20)
+    disk_type                    = optional(string, "gp3")
+    instance_types               = optional(list(string), ["t3.medium"])
+    labels                       = optional(map(string), {})
     taints = optional(list(object({
       key    = string
       value  = optional(string)
