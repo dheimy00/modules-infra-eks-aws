@@ -128,7 +128,9 @@ resource "aws_cloudwatch_log_group" "eks_cluster" {
 
   tags = merge(var.tags, var.cluster_tags, { Name = "${var.cluster_name}-cluster-logs" })
 
-  # Para proteção dura, use literal: lifecycle { prevent_destroy = true }
+  lifecycle {
+    prevent_destroy = var.prevent_cluster_log_group_deletion
+  }
 }
 
 ########################################
@@ -457,7 +459,7 @@ resource "aws_iam_role" "ebs_csi_driver" {
 }
 
 resource "aws_iam_role_policy_attachment" "ebs_csi_driver" {
-  count      = contains(keys(var.cluster_addons), "ebs-csi-driver") && var.enable_irsa ? 1 : 0
+  count      = contains(keys(var.cluster_addons), "aws-ebs-csi-driver") && var.enable_irsa ? 1 : 0
   policy_arn = "arn:${data.aws_partition.current.partition}:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"
   role       = aws_iam_role.ebs_csi_driver[0].name
 }
@@ -472,6 +474,7 @@ resource "aws_eks_addon" "this" {
   cluster_name             = aws_eks_cluster.this.name
   addon_name               = each.key
   addon_version            = try(each.value.version, null)
+  most_recent              = try(each.value.most_recent, null)
   resolve_conflicts        = try(each.value.resolve_conflicts, var.addon_resolve_conflicts_default)
   preserve                 = try(each.value.preserve, false)
   configuration_values     = try(each.value.configuration_values, null)
@@ -546,7 +549,7 @@ resource "aws_eks_node_group" "this" {
     for_each = var.enable_ssh ? [1] : []
     content {
       ec2_ssh_key               = var.ssh_key_name
-      source_security_group_ids = var.create_node_security_group ? [aws_security_group.node[0].id] : []
+      source_security_group_ids = var.create_node_security_group ? [aws_security_group.node[0].id] : (var.node_security_group_id != null ? [var.node_security_group_id] : [])
     }
   }
 
@@ -581,7 +584,7 @@ locals {
       : [
         {
           device_name           = "/dev/xvda"
-          volume_type           = "gp3"
+          volume_type           = try(v.disk_type, "gp3")
           volume_size           = try(v.disk_size, 20)
           encrypted             = true
           delete_on_termination = true
@@ -601,7 +604,7 @@ resource "aws_launch_template" "node_group" {
   name        = coalesce(each.value.launch_template_name, "${var.cluster_name}-${each.key}-lt")
   description = "Launch template for ${var.cluster_name} node group ${each.key}"
 
-  vpc_security_group_ids = var.create_node_security_group ? [aws_security_group.node[0].id] : []
+  vpc_security_group_ids = var.create_node_security_group ? [aws_security_group.node[0].id] : (var.node_security_group_id != null ? [var.node_security_group_id] : [])
 
   dynamic "block_device_mappings" {
     for_each = lookup(local.lt_block_device_mappings, each.key, [])
@@ -612,7 +615,7 @@ resource "aws_launch_template" "node_group" {
         volume_size           = lookup(block_device_mappings.value, "volume_size", try(each.value.disk_size, 20))
         encrypted             = lookup(block_device_mappings.value, "encrypted", true)
         delete_on_termination = lookup(block_device_mappings.value, "delete_on_termination", true)
-        kms_key_id            = lookup(block_device_mappings.value, "kms_key_id", null)
+        kms_key_id            = lookup(block_device_mappings.value, "kms_key_id", try(local.kms_key_id, null))
         iops                  = lookup(block_device_mappings.value, "iops", null)
         throughput            = lookup(block_device_mappings.value, "throughput", null)
       }

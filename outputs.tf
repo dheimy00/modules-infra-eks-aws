@@ -97,7 +97,7 @@ output "cloudwatch_log_group_name" {
 
 output "ebs_csi_driver_iam_role_arn" {
   description = "ARN da IAM Role do EBS CSI Driver (se IRSA e addon habilitados)"
-  value       = contains(keys(var.cluster_addons), "ebs-csi-driver") && var.enable_irsa ? try(aws_iam_role.ebs_csi_driver[0].arn, null) : null
+  value       = contains(keys(var.cluster_addons), "aws-ebs-csi-driver") && var.enable_irsa ? try(aws_iam_role.ebs_csi_driver[0].arn, null) : null
 }
 
 # outputs.tf – dentro do output "node_groups"
