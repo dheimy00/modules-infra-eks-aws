@@ -119,8 +119,20 @@ resource "aws_kms_alias" "eks" {
 # CloudWatch Log Group (sem prevent_destroy variável)
 ########################################
 
+# Sem proteção (quando prevent_cluster_log_group_deletion = false)
 resource "aws_cloudwatch_log_group" "eks_cluster" {
-  count = var.enable_cluster_logging ? 1 : 0
+  count = var.enable_cluster_logging && !var.prevent_cluster_log_group_deletion ? 1 : 0
+
+  name              = "/aws/eks/${var.cluster_name}/cluster"
+  retention_in_days = var.cluster_log_retention_days
+  kms_key_id        = var.create_kms_key ? aws_kms_key.eks[0].arn : (var.cluster_log_kms_key_id != null ? var.cluster_log_kms_key_id : null)
+
+  tags = merge(var.tags, var.cluster_tags, { Name = "${var.cluster_name}-cluster-logs" })
+}
+
+# Com proteção (quando prevent_cluster_log_group_deletion = true)
+resource "aws_cloudwatch_log_group" "eks_cluster_protected" {
+  count = var.enable_cluster_logging && var.prevent_cluster_log_group_deletion ? 1 : 0
 
   name              = "/aws/eks/${var.cluster_name}/cluster"
   retention_in_days = var.cluster_log_retention_days
@@ -129,9 +141,10 @@ resource "aws_cloudwatch_log_group" "eks_cluster" {
   tags = merge(var.tags, var.cluster_tags, { Name = "${var.cluster_name}-cluster-logs" })
 
   lifecycle {
-    prevent_destroy = var.prevent_cluster_log_group_deletion
+    prevent_destroy = true
   }
 }
+
 
 ########################################
 # Security Groups – Cluster e Nodes
@@ -333,6 +346,7 @@ resource "aws_eks_cluster" "this" {
     aws_iam_role_policy_attachment.cluster_policy,
     aws_iam_role_policy_attachment.cluster_vpc_resource_controller,
     aws_cloudwatch_log_group.eks_cluster,
+    aws_cloudwatch_log_group.eks_cluster_protected,
   ]
 
   tags = merge(var.tags, var.cluster_tags, { Name = var.cluster_name })
@@ -489,6 +503,7 @@ resource "aws_eks_addon" "this" {
   depends_on = [
     aws_eks_cluster.this,
     aws_cloudwatch_log_group.eks_cluster,
+    aws_cloudwatch_log_group.eks_cluster_protected,
     aws_eks_node_group.this,
   ]
 

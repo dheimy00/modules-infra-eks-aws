@@ -92,8 +92,12 @@ output "kms_key_alias" {
 
 output "cloudwatch_log_group_name" {
   description = "Nome do Log Group do CloudWatch criado (se logging habilitado)"
-  value       = var.enable_cluster_logging ? try(aws_cloudwatch_log_group.eks_cluster[0].name, null) : null
+  value = var.enable_cluster_logging ? coalesce(
+    try(aws_cloudwatch_log_group.eks_cluster[0].name, null),
+    try(aws_cloudwatch_log_group.eks_cluster_protected[0].name, null)
+  ) : null
 }
+
 
 output "ebs_csi_driver_iam_role_arn" {
   description = "ARN da IAM Role do EBS CSI Driver (se IRSA e addon habilitados)"
