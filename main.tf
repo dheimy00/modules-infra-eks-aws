@@ -482,13 +482,29 @@ resource "aws_iam_role_policy_attachment" "ebs_csi_driver" {
 # EKS Add-ons (depends_on estático)
 ########################################
 
+# Resolve a versão mais recente compatível para os add-ons que pedirem most_recent
+data "aws_eks_addon_version" "resolved" {
+  for_each = {
+    for k, v in var.cluster_addons :
+    k => v
+    if try(v.most_recent, false) && try(v.version, null) == null
+  }
+
+  addon_name         = each.key
+  kubernetes_version = var.cluster_version
+  most_recent        = true
+}
+
+
 resource "aws_eks_addon" "this" {
   for_each = var.cluster_addons
 
-  cluster_name             = aws_eks_cluster.this.name
-  addon_name               = each.key
-  addon_version            = try(each.value.version, null)
-  most_recent              = try(each.value.most_recent, null)
+  cluster_name = aws_eks_cluster.this.name
+  addon_name   = each.key
+  addon_version = try(
+    each.value.version,
+    try(data.aws_eks_addon_version.resolved[each.key].version, null)
+  )
   resolve_conflicts        = try(each.value.resolve_conflicts, var.addon_resolve_conflicts_default)
   preserve                 = try(each.value.preserve, false)
   configuration_values     = try(each.value.configuration_values, null)
@@ -511,6 +527,7 @@ resource "aws_eks_addon" "this" {
 
   lifecycle { ignore_changes = [addon_version] }
 }
+
 
 ########################################
 # Node Groups (Managed)
