@@ -336,6 +336,11 @@ resource "aws_eks_cluster" "this" {
     service_ipv4_cidr = var.cluster_service_ipv4_cidr
   }
 
+  # Habilita o novo modelo de auth do EKS (necessário p/ Access Entries)
+  access_config {
+    authentication_mode = var.cluster_authentication_mode
+  }
+
   timeouts {
     create = try(var.cluster_timeouts.create, "60m")
     update = try(var.cluster_timeouts.update, "60m")
@@ -818,6 +823,39 @@ resource "aws_eks_access_policy_association" "this" {
 
   depends_on = [aws_eks_access_entry.this]
 }
+
+
+# Access Entry dos NODES (kubelet)
+resource "aws_eks_access_entry" "nodes_auto" {
+  count         = var.auth_mode == "access-entries" && var.create_nodes_access_entry ? 1 : 0
+  cluster_name  = aws_eks_cluster.this.name
+  principal_arn = aws_iam_role.node.arn
+  type          = "EC2_LINUX"
+
+  depends_on = [aws_eks_cluster.this]
+}
+
+# Access Entry + ClusterAdmin p/ sua role de admin/CI
+resource "aws_eks_access_entry" "admin_auto" {
+  count         = var.auth_mode == "access-entries" && var.create_admin_access_entry && var.admin_principal_arn != null ? 1 : 0
+  cluster_name  = aws_eks_cluster.this.name
+  principal_arn = var.admin_principal_arn
+  type          = "STANDARD"
+
+  depends_on = [aws_eks_cluster.this]
+}
+
+resource "aws_eks_access_policy_association" "admin_auto_cluster_admin" {
+  count         = length(aws_eks_access_entry.admin_auto) == 1 ? 1 : 0
+  cluster_name  = aws_eks_cluster.this.name
+  principal_arn = aws_eks_access_entry.admin_auto[0].principal_arn
+  policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+
+  access_scope { type = "cluster" }
+
+  depends_on = [aws_eks_access_entry.admin_auto]
+}
+
 
 ########################################
 # EKS Identity Provider (OIDC) – opcional
