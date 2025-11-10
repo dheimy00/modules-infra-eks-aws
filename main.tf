@@ -354,9 +354,9 @@ resource "aws_eks_cluster" "this" {
   lifecycle {
     ignore_changes = [
       version,
-      vpc_config[0].public_access_cidrs,
-      vpc_config[0].endpoint_public_access,
-      vpc_config[0].endpoint_private_access,
+      #      vpc_config[0].public_access_cidrs,
+      #      vpc_config[0].endpoint_public_access,
+      #      vpc_config[0].endpoint_private_access,
     ]
 
     # Pelo menos 2 subnets
