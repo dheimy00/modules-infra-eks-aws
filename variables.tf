@@ -529,3 +529,32 @@ variable "allow_public_endpoint_anywhere" {
   type        = bool
   default     = false
 }
+
+variable "cluster_authentication_mode" {
+  description = "Authentication mode do EKS: API | CONFIG_MAP | API_AND_CONFIG_MAP"
+  type        = string
+  default     = "API_AND_CONFIG_MAP"
+  validation {
+    condition     = contains(["API", "CONFIG_MAP", "API_AND_CONFIG_MAP"], var.cluster_authentication_mode)
+    error_message = "Use API, CONFIG_MAP ou API_AND_CONFIG_MAP."
+  }
+}
+
+
+variable "create_nodes_access_entry" {
+  description = "Se true, cria Access Entry EC2_LINUX para a role dos nodes"
+  type        = bool
+  default     = true
+}
+
+variable "create_admin_access_entry" {
+  description = "Se true, cria Access Entry + associação de policy para uma role de admin"
+  type        = bool
+  default     = false
+}
+
+variable "admin_principal_arn" {
+  description = "ARN da role (ou user) que terá acesso admin (usado quando create_admin_access_entry=true)"
+  type        = string
+  default     = null
+}

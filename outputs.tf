@@ -80,6 +80,11 @@ output "node_iam_role_arn" {
   value       = aws_iam_role.node.arn
 }
 
+output "oidc_provider_arn" {
+  description = "ARN do provedor OIDC do cluster (se IRSA habilitado)"
+  value       = try(aws_iam_openid_connect_provider.oidc[0].arn, null)
+}
+
 output "kms_key_id" {
   description = "ARN da chave KMS usada pelo cluster"
   value       = var.create_kms_key ? try(aws_kms_key.eks[0].arn, null) : var.kms_key_id
