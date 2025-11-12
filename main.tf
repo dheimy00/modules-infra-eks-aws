@@ -814,6 +814,7 @@ resource "aws_iam_role_policy_attachment" "alb_controller" {
 ###############################
 # Helm release do AWS Load Balancer Controller (somente quando use_alb)
 ###############################
+
 provider "helm" {
   kubernetes {
     host                   = aws_eks_cluster.this.endpoint
@@ -846,6 +847,9 @@ resource "helm_release" "aws_load_balancer_controller" {
   depends_on = [
     aws_eks_cluster.this,
     aws_iam_openid_connect_provider.oidc,
-    aws_iam_role_policy_attachment.alb_controller
+    aws_iam_role_policy_attachment.alb_controller,
+    aws_eks_access_entry.admin_auto,
+    aws_eks_access_entry.this,       # se você usa o mapa var.access_entries
+    aws_eks_access_entry.nodes_auto, # opcional
   ]
 }
