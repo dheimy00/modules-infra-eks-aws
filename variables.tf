@@ -12,15 +12,6 @@ variable "cluster_name" {
   }
 }
 
-variable "cluster_oidc_url" { # ex: data.aws_eks_cluster.this.identity[0].oidc[0].issuer
-  description = "URL do emissor OIDC do cluster EKS."
-  type        = string
-}
-variable "cluster_oidc_arn" { # arn do aws_iam_openid_connect_provider
-  description = "arn do aws_iam_openid_connect_provider do cluster EKS."
-  type        = string
-}
-
 variable "cluster_version" {
   description = "Versão do Kubernetes para o EKS."
   type        = string
