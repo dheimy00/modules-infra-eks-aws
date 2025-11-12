@@ -12,10 +12,24 @@ variable "cluster_name" {
   }
 }
 
+variable "cluster_oidc_url" { # ex: data.aws_eks_cluster.this.identity[0].oidc[0].issuer
+  description = "URL do emissor OIDC do cluster EKS."
+  type        = string
+}
+variable "cluster_oidc_arn" { # arn do aws_iam_openid_connect_provider
+  description = "arn do aws_iam_openid_connect_provider do cluster EKS."
+  type        = string
+}
+
 variable "cluster_version" {
   description = "Versão do Kubernetes para o EKS."
   type        = string
   default     = "1.28"
+}
+
+variable "region" {
+  description = "Região AWS onde o EKS será criado."
+  type        = string
 }
 
 variable "vpc_id" {
@@ -557,4 +571,14 @@ variable "admin_principal_arn" {
   description = "ARN da role (ou user) que terá acesso admin (usado quando create_admin_access_entry=true)"
   type        = string
   default     = null
+}
+
+variable "lb_kind" {
+  type        = string
+  default     = "alb"
+  description = "Tipo de load balancer a usar (alb|nlb)."
+  validation {
+    condition     = contains(["alb", "nlb"], lower(var.lb_kind))
+    error_message = "lb_kind deve ser 'alb' ou 'nlb'."
+  }
 }
