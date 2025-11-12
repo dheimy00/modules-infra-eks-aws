@@ -772,3 +772,80 @@ resource "aws_eks_identity_provider_config" "this" {
     aws_iam_openid_connect_provider.oidc,
   ]
 }
+
+###############################
+# IRSA + Policy do ALB Controller (somente quando use_alb)
+###############################
+resource "aws_iam_policy" "alb_controller" {
+  count       = local.use_alb ? 1 : 0
+  name        = "${var.cluster_name}-alb-controller-policy"
+  description = "Permissões do AWS Load Balancer Controller"
+  policy      = var.alb_controller_policy_json
+}
+
+resource "aws_iam_role" "alb_controller" {
+  count = local.use_alb ? 1 : 0
+  name  = "${var.cluster_name}-alb-controller-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [{
+      Effect = "Allow",
+      Principal = {
+        Federated = aws_iam_openid_connect_provider.oidc[0].arn
+      },
+      Action = "sts:AssumeRoleWithWebIdentity",
+      Condition = {
+        StringEquals = {
+          "${replace(aws_iam_openid_connect_provider.oidc[0].url, "https://", "")}:aud" = "sts.amazonaws.com",
+          "${replace(aws_iam_openid_connect_provider.oidc[0].url, "https://", "")}:sub" = "system:serviceaccount:kube-system:aws-load-balancer-controller"
+        }
+      }
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "alb_controller" {
+  count      = local.use_alb ? 1 : 0
+  role       = aws_iam_role.alb_controller[0].name
+  policy_arn = aws_iam_policy.alb_controller[0].arn
+}
+
+###############################
+# Helm release do AWS Load Balancer Controller (somente quando use_alb)
+###############################
+provider "helm" {
+  kubernetes {
+    host                   = aws_eks_cluster.this.endpoint
+    token                  = data.aws_eks_cluster_auth.this.token
+    cluster_ca_certificate = base64decode(aws_eks_cluster.this.certificate_authority[0].data)
+  }
+}
+
+resource "helm_release" "aws_load_balancer_controller" {
+  count      = local.use_alb ? 1 : 0
+  name       = "aws-load-balancer-controller"
+  namespace  = "kube-system"
+  repository = "https://aws.github.io/eks-charts"
+  chart      = "aws-load-balancer-controller"
+  # ajuste a versão conforme sua versão do K8s/compatibilidade:
+  version = "1.8.1"
+
+  values = [<<-YAML
+    clusterName: ${var.cluster_name}
+    region: ${data.aws_region.current.name}
+    vpcId: ${var.vpc_id}
+    serviceAccount:
+      create: true
+      name: aws-load-balancer-controller
+      annotations:
+        eks.amazonaws.com/role-arn: ${aws_iam_role.alb_controller[0].arn}
+  YAML
+  ]
+
+  depends_on = [
+    aws_eks_cluster.this,
+    aws_iam_openid_connect_provider.oidc,
+    aws_iam_role_policy_attachment.alb_controller
+  ]
+}
