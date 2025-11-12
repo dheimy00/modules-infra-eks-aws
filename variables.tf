@@ -582,3 +582,11 @@ variable "lb_kind" {
     error_message = "lb_kind deve ser 'alb' ou 'nlb'."
   }
 }
+
+# Política oficial do AWS Load Balancer Controller (JSON, colar aqui ou passar via TF var-file)
+# Conteúdo atualizado do repositório oficial (policy.json)
+variable "alb_controller_policy_json" {
+  type        = string
+  default     = ""
+  description = "JSON da policy do AWS Load Balancer Controller (oficial). Obrigatório quando lb_kind=alb."
+}

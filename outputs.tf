@@ -192,3 +192,14 @@ output "cluster_identity" {
   description = "Informações de identidade do cluster (inclui OIDC, se disponível)"
   value       = aws_eks_cluster.this.identity
 }
+
+
+output "lb_kind_effective" {
+  value       = local.lb_kind_normalized
+  description = "Tipo de load balancer efetivo (alb|nlb)"
+}
+
+output "alb_controller_role_arn" {
+  description = "ARN da role IRSA do AWS Load Balancer Controller (se alb)"
+  value       = local.use_alb ? aws_iam_role.alb_controller[0].arn : null
+}
