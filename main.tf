@@ -170,6 +170,13 @@ resource "aws_eks_cluster" "this" {
   enabled_cluster_log_types = var.cluster_log_types
 
   tags = local.common_tags
+
+  lifecycle {
+    ignore_changes = [
+      vpc_config[0].endpoint_public_access,
+      vpc_config[0].public_access_cidrs,
+    ]
+  }
 }
 
 data "aws_eks_cluster_auth" "this" {
