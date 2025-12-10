@@ -218,7 +218,7 @@ resource "aws_eks_node_group" "default" {
   cluster_name    = aws_eks_cluster.this.name
   node_group_name = "${var.cluster_name}-ng-default"
   node_role_arn   = aws_iam_role.eks_node.arn
-  subnet_ids      = length(var.public_subnet_ids) > 0 ? var.public_subnet_ids : var.private_subnet_ids
+  subnet_ids      = concat(var.private_subnet_ids, var.public_subnet_ids)
 
   scaling_config {
     desired_size = var.node_desired_size
