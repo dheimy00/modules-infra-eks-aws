@@ -1,14 +1,36 @@
-variable "region" { type = string }
+variable "region" {
+  type    = string
+  default = null
+}
 variable "cluster_name" { type = string }
 variable "cluster_version" { type = string }
-variable "vpc_id" { type = string }
-variable "private_subnet_ids" { type = list(string) }
-variable "public_subnet_ids" { type = list(string) }
-variable "admin_cidrs" { type = list(string) }
-variable "node_desired_size" { type = number }
+variable "vpc_id" {
+  type    = string
+  default = null
+}
+variable "private_subnet_ids" {
+  type    = list(string)
+  default = []
+}
+variable "public_subnet_ids" {
+  type    = list(string)
+  default = []
+}
+variable "admin_cidrs" {
+  type    = list(string)
+  default = []
+}
+variable "node_desired_size" {
+  type    = number
+  default = null
+}
+
 variable "node_min_size" { type = number }
 variable "node_max_size" { type = number }
-variable "node_instance_types" { type = list(string) }
+variable "node_instance_types" {
+  type    = list(string)
+  default = []
+}
 variable "node_capacity_type" { type = string }
 variable "node_disk_size" { type = number }
 variable "enable_irsa" { type = bool }
